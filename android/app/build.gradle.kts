@@ -35,6 +35,24 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+        buildscript {
+            repositories {
+                maven { url = uri("https://storage.googleapis.com/download.flutter.io") }
+                maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }
+                maven { url = uri("https://maven.google.com/") }
+                google()
+                mavenCentral()
+                maven { url = uri("https://jitpack.io") }
+            }
+        }
+        }
+        repositories {
+            maven { url = uri("https://storage.googleapis.com/download.flutter.io") }
+            maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }
+            maven { url = uri("https://maven.google.com/") }
+            google()
+            mavenCentral()
+            maven { url = uri("https://jitpack.io") }
         }
     }
 }
