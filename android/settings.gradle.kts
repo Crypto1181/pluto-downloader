@@ -41,18 +41,20 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
         maven { url = uri("https://jitpack.io") }
+        maven { url = uri("https://repo1.maven.org/maven2/") }
     }
 }
 
 // Ensure all projects use these repositories (mirrors first)
 dependencyResolutionManagement {
-    repositoriesMode.set(org.gradle.api.initialization.resolve.RepositoriesMode.PREFER_SETTINGS)
     repositories {
+        maven("https://storage.googleapis.com/download.flutter.io")
         maven("https://maven-central.storage-download.googleapis.com/maven2/")
         maven("https://maven.google.com/")
         google()
         mavenCentral()
         maven { url = uri("https://jitpack.io") }
+        maven { url = uri("https://repo1.maven.org/maven2/") }
     }
 }
 

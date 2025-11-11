@@ -1,9 +1,13 @@
+import java.io.File
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+buildDir = File(rootProject.projectDir.parentFile, "build/app")
 
 android {
     namespace = "com.example.pluto_downloader"
@@ -35,24 +39,6 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
-        buildscript {
-            repositories {
-                maven { url = uri("https://storage.googleapis.com/download.flutter.io") }
-                maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }
-                maven { url = uri("https://maven.google.com/") }
-                google()
-                mavenCentral()
-                maven { url = uri("https://jitpack.io") }
-            }
-        }
-        }
-        repositories {
-            maven { url = uri("https://storage.googleapis.com/download.flutter.io") }
-            maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }
-            maven { url = uri("https://maven.google.com/") }
-            google()
-            mavenCentral()
-            maven { url = uri("https://jitpack.io") }
         }
     }
 }

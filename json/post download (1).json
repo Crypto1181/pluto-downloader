@@ -1,0 +1,43 @@
+{
+  "url": "https://www.tiktok.com/@yeuphimzz/video/7237370304337628442",
+  "source": "tiktok",
+  "id": "7237370304337628442",
+  "unique_id": "yeuphimzz",
+  "author": "yeuphimzz",
+  "title": "Shin godzilla #movie #yeuphimzz",
+  "thumbnail": "",
+  "duration": 88447,
+  "medias": [
+    {
+      "url": "https://api.tiktokv.com/aweme/v1/play/?faid=1340&file_id=f8ac03c5a9e9431e8217bc217f6d0ea1&is_play_url=1&item_id=7237370304337628442&line=0&signaturev3=dmlkZW9faWQ7ZmlsZV9pZDtpdGVtX2lkLjNiMWY1ZDM1Y2Q1MzczNTQzNGFkNWMyYTJmZTk5YWIw&source=FEED&urlt=1&video_id=v0f025gc0000cho4qlbc77u87aanejag",
+      "data_size": 5466143,
+      "quality": "hd_no_watermark",
+      "extension": "mp4",
+      "type": "video"
+    },
+    {
+      "url": "https://api.tiktokv.com/aweme/v1/play/?faid=1340&file_id=d67c4a7f2d0f43028344fa1cdf80ec68&is_play_url=1&item_id=7237370304337628442&line=0&signaturev3=dmlkZW9faWQ7ZmlsZV9pZDtpdGVtX2lkLmEwYzVjMjcyODU3Mjg2ZmVkOTdmMDM3YmUzZGQ4OWQ1&source=FEED&urlt=1&video_id=v0f025gc0000cho4qlbc77u87aanejag",
+      "data_size": 4140469,
+      "quality": "no_watermark",
+      "extension": "mp4",
+      "type": "video"
+    },
+    {
+      "url": "https://api.tiktokv.com/aweme/v1/play/?video_id=v0f025gc0000cho4qlbc77u87aanejag&line=0&watermark=1&logo_name=tiktok_m&source=FEED&file_id=f41befaa9b9c48ef925354db980595b2&item_id=7237370304337628442&signaturev3=dmlkZW9faWQ7ZmlsZV9pZDtpdGVtX2lkLjhjN2RlNWJhYTY0YmZlYTM2NDgyZGRiMTc0ZWEzYTFj&shp=d05b14bd&shcp=-",
+      "data_size": 10899158,
+      "quality": "watermark",
+      "extension": "mp4",
+      "type": "video"
+    },
+    {
+      "url": "https://sf16-ies-music.tiktokcdn.com/obj/ies-music-aiso/7237370638501972763.mp3",
+      "duration": 88,
+      "quality": "audio",
+      "extension": "mp3",
+      "type": "audio"
+    }
+  ],
+  "type": "multiple",
+  "error": false,
+  "time_end": 1329
+}

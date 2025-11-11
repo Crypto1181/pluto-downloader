@@ -5,9 +5,136 @@ import 'package:animated_text_kit/animated_text_kit.dart';
 import 'package:glassmorphism/glassmorphism.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:http/http.dart' as http;
+import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
+import 'dart:ui' show IsolateNameServer;
 import 'package:flutter_downloader/flutter_downloader.dart';
 import 'package:path_provider/path_provider.dart';
+import 'about_developer_screen.dart';
+
+const String _downloadPortName = 'downloader_send_port';
+
+class _DownloadOverlayStateData {
+  final String message;
+  final bool showLoader;
+  final IconData? icon;
+  final Color? iconColor;
+  final double? progress;
+
+  const _DownloadOverlayStateData({
+    required this.message,
+    this.showLoader = true,
+    this.icon,
+    this.iconColor,
+    this.progress,
+  });
+
+  _DownloadOverlayStateData copyWith({
+    String? message,
+    bool? showLoader,
+    IconData? icon,
+    Color? iconColor,
+    double? progress,
+  }) {
+    return _DownloadOverlayStateData(
+      message: message ?? this.message,
+      showLoader: showLoader ?? this.showLoader,
+      icon: icon ?? this.icon,
+      iconColor: iconColor ?? this.iconColor,
+      progress: progress ?? this.progress,
+    );
+  }
+}
+
+class _DownloadOverlayWidget extends StatelessWidget {
+  final ValueNotifier<_DownloadOverlayStateData?> notifier;
+
+  const _DownloadOverlayWidget({required this.notifier});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<_DownloadOverlayStateData?>(
+      valueListenable: notifier,
+      builder: (context, state, _) {
+        if (state == null) {
+          return const SizedBox.shrink();
+        }
+        return Stack(
+          children: [
+            ModalBarrier(
+              dismissible: false,
+              color: Colors.black.withOpacity(0.4),
+            ),
+            Center(
+              child: Container(
+                width: 260,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 28,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.grey[900],
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: const Color(0xFF1E88E5).withOpacity(0.4),
+                    width: 1.2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.45),
+                      blurRadius: 18,
+                      offset: const Offset(0, 12),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (state.showLoader) ...[
+                      SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 4,
+                          value: state.progress != null
+                              ? state.progress!.clamp(0.0, 1.0)
+                              : null,
+                        ),
+                      ),
+                    ] else if (state.icon != null) ...[
+                      Icon(
+                        state.icon,
+                        size: 52,
+                        color: state.iconColor ?? Colors.white,
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    Text(
+                      state.message,
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+@pragma('vm:entry-point')
+void downloadCallback(String id, int status, int progress) {
+  final SendPort? send = IsolateNameServer.lookupPortByName(_downloadPortName);
+  send?.send([id, status, progress]);
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -52,6 +179,13 @@ class _ColdDownloaderHomeState extends State<ColdDownloaderHome>
   late Animation<double> _pulseAnimation;
   bool _isDownloading = false;
   double _downloadProgress = 0.0;
+  String _downloadStatusText = 'Fetching links...';
+  final ReceivePort _port = ReceivePort();
+  String? _currentTaskId;
+  OverlayEntry? _downloadOverlayEntry;
+  final ValueNotifier<_DownloadOverlayStateData?> _downloadOverlayNotifier =
+      ValueNotifier<_DownloadOverlayStateData?>(null);
+  Timer? _overlayDismissTimer;
   static const String _rapidApiKey = String.fromEnvironment('RAPIDAPI_KEY');
 
   @override
@@ -79,6 +213,80 @@ class _ColdDownloaderHomeState extends State<ColdDownloaderHome>
 
     _logoAnimationController.forward();
     _pulseAnimationController.repeat(reverse: true);
+
+    IsolateNameServer.removePortNameMapping(_downloadPortName);
+    IsolateNameServer.registerPortWithName(_port.sendPort, _downloadPortName);
+    FlutterDownloader.registerCallback(downloadCallback);
+    _port.listen((dynamic data) async {
+      if (!mounted) return;
+      final String id = data[0] as String;
+      final int statusRaw = data[1] as int;
+      final int progress = data[2] as int;
+
+      DownloadTaskStatus status;
+      try {
+        status = DownloadTaskStatus.fromInt(statusRaw);
+      } on ArgumentError {
+        status = DownloadTaskStatus.undefined;
+      }
+
+      if (_currentTaskId != id) {
+        return;
+      }
+
+      if (status == DownloadTaskStatus.running ||
+          status == DownloadTaskStatus.enqueued) {
+        final double? overlayProgress = progress >= 0
+            ? (progress.clamp(0, 100) / 100.0)
+            : null;
+        final int displayProgress = progress >= 0 ? progress.clamp(0, 100) : 0;
+        _showOrUpdateDownloadOverlay(
+          message: progress < 0
+              ? 'Preparing download...'
+              : 'Downloading... $displayProgress%',
+          showLoader: true,
+          progress: overlayProgress,
+        );
+        setState(() {
+          _downloadProgress = progress >= 0
+              ? (progress.clamp(0, 100) / 100.0)
+              : _downloadProgress;
+          _downloadStatusText = 'Downloading...';
+        });
+      } else if (status == DownloadTaskStatus.complete) {
+        _showOrUpdateDownloadOverlay(
+          message: 'Download complete!',
+          showLoader: false,
+          icon: Icons.check_circle,
+          iconColor: Colors.greenAccent,
+        );
+        _hideDownloadOverlay(delay: const Duration(seconds: 2));
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+          _currentTaskId = null;
+          _downloadStatusText = 'Fetching links...';
+        });
+      } else if (status == DownloadTaskStatus.failed ||
+          status == DownloadTaskStatus.canceled) {
+        _showOrUpdateDownloadOverlay(
+          message: 'Download failed. Please try again.',
+          showLoader: false,
+          icon: Icons.error_outline,
+          iconColor: Colors.redAccent,
+        );
+        _hideDownloadOverlay(delay: const Duration(seconds: 2));
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+          _currentTaskId = null;
+          _downloadStatusText = 'Fetching links...';
+        });
+        if (mounted) {
+          _showErrorDialog('Download failed. Please try again.');
+        }
+      }
+    });
   }
 
   @override
@@ -86,7 +294,58 @@ class _ColdDownloaderHomeState extends State<ColdDownloaderHome>
     _logoAnimationController.dispose();
     _pulseAnimationController.dispose();
     _urlController.dispose();
+    _cancelOverlayDismissTimer();
+    _downloadOverlayEntry?.remove();
+    _downloadOverlayEntry = null;
+    _downloadOverlayNotifier.dispose();
+    _port.close();
+    IsolateNameServer.removePortNameMapping(_downloadPortName);
     super.dispose();
+  }
+
+  void _cancelOverlayDismissTimer() {
+    _overlayDismissTimer?.cancel();
+    _overlayDismissTimer = null;
+  }
+
+  void _showOrUpdateDownloadOverlay({
+    required String message,
+    bool showLoader = true,
+    IconData? icon,
+    Color? iconColor,
+    double? progress,
+  }) {
+    _cancelOverlayDismissTimer();
+    final overlayState = Overlay.of(context, rootOverlay: true);
+    if (_downloadOverlayEntry == null) {
+      _downloadOverlayEntry = OverlayEntry(
+        builder: (_) =>
+            _DownloadOverlayWidget(notifier: _downloadOverlayNotifier),
+      );
+      overlayState.insert(_downloadOverlayEntry!);
+    }
+    _downloadOverlayNotifier.value = _DownloadOverlayStateData(
+      message: message,
+      showLoader: showLoader,
+      icon: icon,
+      iconColor: iconColor,
+      progress: progress,
+    );
+  }
+
+  void _hideDownloadOverlay({Duration delay = Duration.zero}) {
+    if (delay <= Duration.zero) {
+      _cancelOverlayDismissTimer();
+      _downloadOverlayNotifier.value = null;
+      _downloadOverlayEntry?.remove();
+      _downloadOverlayEntry = null;
+    } else {
+      _cancelOverlayDismissTimer();
+      _overlayDismissTimer = Timer(delay, () {
+        if (!mounted) return;
+        _hideDownloadOverlay();
+      });
+    }
   }
 
   void _simulateDownload() async {
@@ -111,10 +370,14 @@ class _ColdDownloaderHomeState extends State<ColdDownloaderHome>
     setState(() {
       _isDownloading = true; // used to disable button
       _downloadProgress = 0.0;
+      _downloadStatusText = 'Fetching links...';
+      _currentTaskId = null;
     });
 
-    // Show a quick blocking loader so users see progress immediately
-    _showBlockingLoader('Fetching download links...');
+    _showOrUpdateDownloadOverlay(
+      message: 'Fetching download links...',
+      showLoader: true,
+    );
 
     try {
       final url = _urlController.text.trim();
@@ -139,12 +402,15 @@ class _ColdDownloaderHomeState extends State<ColdDownloaderHome>
       }
 
       if (mounted) {
-        // Dismiss loader
-        Navigator.of(context, rootNavigator: true).maybePop();
         setState(() {
           _downloadProgress = 1.0;
           _isDownloading = false;
         });
+
+        _showOrUpdateDownloadOverlay(
+          message: 'Preparing download sources...',
+          showLoader: true,
+        );
 
         if (response.statusCode == 200) {
           final decoded = json.decode(response.body);
@@ -177,19 +443,51 @@ class _ColdDownloaderHomeState extends State<ColdDownloaderHome>
               final quality =
                   media['quality'] ?? media['extension'] ?? 'default';
               if (mediaUrl != null && mediaUrl.toString().isNotEmpty) {
+                _showOrUpdateDownloadOverlay(
+                  message: 'Starting download...',
+                  showLoader: true,
+                );
                 _downloadVideo(mediaUrl.toString(), quality.toString());
               } else {
+                _showOrUpdateDownloadOverlay(
+                  message: 'Media URL invalid.',
+                  showLoader: false,
+                  icon: Icons.error_outline,
+                  iconColor: Colors.redAccent,
+                );
+                _hideDownloadOverlay(delay: const Duration(seconds: 2));
                 _showErrorDialog('Media URL is empty or invalid.');
               }
             } else {
+              _showOrUpdateDownloadOverlay(
+                message: 'No valid media links found.',
+                showLoader: false,
+                icon: Icons.error_outline,
+                iconColor: Colors.redAccent,
+              );
+              _hideDownloadOverlay(delay: const Duration(seconds: 2));
               _showErrorDialog('No valid media URLs found in the response.');
             }
           } else {
+            _showOrUpdateDownloadOverlay(
+              message: 'No downloadable media found.',
+              showLoader: false,
+              icon: Icons.error_outline,
+              iconColor: Colors.redAccent,
+            );
+            _hideDownloadOverlay(delay: const Duration(seconds: 2));
             _showErrorDialog(
               'No downloadable media found.\nResponse structure: ${data.keys.join(", ")}',
             );
           }
         } else {
+          _showOrUpdateDownloadOverlay(
+            message: 'Failed to fetch media (${response.statusCode}).',
+            showLoader: false,
+            icon: Icons.error_outline,
+            iconColor: Colors.redAccent,
+          );
+          _hideDownloadOverlay(delay: const Duration(seconds: 2));
           _showErrorDialog(
             'Failed to fetch media. Status: ${response.statusCode}',
           );
@@ -197,52 +495,19 @@ class _ColdDownloaderHomeState extends State<ColdDownloaderHome>
       }
     } catch (e) {
       if (mounted) {
-        Navigator.of(context, rootNavigator: true).maybePop();
         setState(() {
           _isDownloading = false;
         });
+        _showOrUpdateDownloadOverlay(
+          message: 'Request failed. Please try again.',
+          showLoader: false,
+          icon: Icons.error_outline,
+          iconColor: Colors.redAccent,
+        );
+        _hideDownloadOverlay(delay: const Duration(seconds: 2));
         _showErrorDialog('Request failed: ${e.toString()}');
       }
     }
-  }
-
-  void _showBlockingLoader(String message) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        backgroundColor: Colors.grey[900],
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: 300,
-            minWidth: 200,
-            maxHeight: 120,
-            minHeight: 80,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const SizedBox(
-                width: 32,
-                height: 32,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                message,
-                style: GoogleFonts.inter(color: Colors.white),
-                textAlign: TextAlign.center,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   Future<void> _downloadVideo(String url, String quality) async {
@@ -250,7 +515,14 @@ class _ColdDownloaderHomeState extends State<ColdDownloaderHome>
       setState(() {
         _isDownloading = true;
         _downloadProgress = 0.0;
+        _downloadStatusText = 'Downloading...';
       });
+
+      _showOrUpdateDownloadOverlay(
+        message: 'Download starting...',
+        showLoader: true,
+        progress: 0.0,
+      );
 
       // Get download directory
       final directory = await getExternalStorageDirectory();
@@ -260,7 +532,7 @@ class _ColdDownloaderHomeState extends State<ColdDownloaderHome>
       final fileName = 'pluto_video_${timestamp}_$quality.mp4';
 
       // Use flutter_downloader to download the file
-      await FlutterDownloader.enqueue(
+      final taskId = await FlutterDownloader.enqueue(
         url: url,
         savedDir: directory!.path,
         fileName: fileName,
@@ -269,49 +541,28 @@ class _ColdDownloaderHomeState extends State<ColdDownloaderHome>
         saveInPublicStorage: true,
       );
 
-      if (mounted) {
-        setState(() {
-          _isDownloading = false;
-          _downloadProgress = 0.0;
-        });
-        _showSuccessDialogWithMessage(
-          'Download started!\n\nCheck your notification panel for progress.',
-        );
+      if (taskId == null) {
+        throw Exception('Failed to start download task.');
       }
+
+      _currentTaskId = taskId;
     } catch (e) {
       if (mounted) {
         setState(() {
           _isDownloading = false;
           _downloadProgress = 0.0;
+          _downloadStatusText = 'Fetching links...';
         });
+        _showOrUpdateDownloadOverlay(
+          message: 'Download failed. Please try again.',
+          showLoader: false,
+          icon: Icons.error_outline,
+          iconColor: Colors.redAccent,
+        );
+        _hideDownloadOverlay(delay: const Duration(seconds: 2));
         _showErrorDialog('Download failed: ${e.toString()}');
       }
     }
-  }
-
-  void _showSuccessDialogWithMessage(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[900],
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Icon(Icons.check_circle, color: Colors.green, size: 50),
-        content: Text(
-          message,
-          style: GoogleFonts.inter(color: Colors.white),
-          textAlign: TextAlign.center,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'OK',
-              style: GoogleFonts.inter(color: const Color(0xFF1E88E5)),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showErrorDialog(String message) {
@@ -584,7 +835,7 @@ class _ColdDownloaderHomeState extends State<ColdDownloaderHome>
                                               ),
                                               const SizedBox(width: 12),
                                               Text(
-                                                'Fetching links... ${(_downloadProgress * 100).toInt()}%',
+                                                '$_downloadStatusText ${(_downloadProgress * 100).toInt()}%',
                                                 style: GoogleFonts.inter(
                                                   fontSize: 16,
                                                   fontWeight: FontWeight.w600,
@@ -722,33 +973,45 @@ class _ColdDownloaderHomeState extends State<ColdDownloaderHome>
   }
 
   Widget _buildPlatformIcon(IconData icon, String label) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF1E88E5), Color(0xFF42A5F5)],
+    return GestureDetector(
+      onTap: () {
+        if (label == 'More') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const AboutDeveloperScreen(),
             ),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF1E88E5).withOpacity(0.3),
-                blurRadius: 8,
-                spreadRadius: 2,
+          );
+        }
+      },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF1E88E5), Color(0xFF42A5F5)],
               ),
-            ],
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF1E88E5).withOpacity(0.3),
+                  blurRadius: 8,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: Icon(icon, color: Colors.white, size: 20),
           ),
-          child: Icon(icon, color: Colors.white, size: 20),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: GoogleFonts.inter(fontSize: 8, color: Colors.white70),
-        ),
-      ],
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: GoogleFonts.inter(fontSize: 8, color: Colors.white70),
+          ),
+        ],
+      ),
     );
   }
 }
